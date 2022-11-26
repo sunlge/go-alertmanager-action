@@ -1,0 +1,261 @@
+package main
+
+import (
+	"alertmanager/pkg"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"github.com/gin-gonic/gin"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// Dintalk接收信息
+type Message struct {
+	MsgType string `json:"msgtype"`
+	Text struct {
+		Content string `json:"content"`
+		Mentioned_list string `json:"mentioned_list"`
+		Mentioned_mobile_list string `json:"mentioned_mobile_list"`
+	} `json:"text"`
+
+}
+
+type Alert struct {
+	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:annotations`
+	StartsAt    time.Time         `json:"startsAt"`
+	EndsAt      time.Time         `json:"endsAt"`
+}
+
+// 定义一个接收alertmanager告警消息的结构体
+type Notification struct {
+	Version           string            `json:"version"`		  // api版本
+	GroupKey          string            `json:"groupKey"`		  // 定义的告警规则的标签 {}/{action="delete",namespace="kube-plugin"}:{namespace="kube-plugin"}
+	Status            string            `json:"status"`			  // 告警状态 firing
+	Receiver          string            `json:receiver`			  // Receiver接收器
+	GroupLabels       map[string]string `json:groupLabels`		  // ---
+	CommonLabels      map[string]string `json:commonLabels`		  // 触发告警rule的标签 这里拿到的信息可能和实际告警的应用不匹配。
+	CommonAnnotations map[string]string `json:commonAnnotations`  // 获取不到description，测试可以获取到summary
+	ExternalURL       string            `json:externalURL`		  // ---
+	Alerts            []Alert           `json:alerts`
+}
+
+type AlertSizeInfo struct {
+	PodList 		[]string
+	NamespceList 	[]string
+	NsPod			map[string][]string
+	AppNameString 	string
+	Alertname		string
+	Summary			string
+	Action			string
+	Status			string
+	NewNsPod		map[string]map[string]string		// 去重
+
+}
+
+//var (
+//	TOKEN  = os.Getenv("app.env.TOKEN")
+//	MOBILE = os.Getenv("app.env.MOBILE")
+//	size AlertSizeInfo
+//)
+
+
+var TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=3e3124e956cd93df7f5bff51a744c1398b4c1ebf940028dfee7f543a41523df6"
+var MOBILE = ""
+
+func ProcessingData(notification Notification) (AlertSizeInfo) {
+
+	var size AlertSizeInfo
+	alertname, err := json.Marshal(notification.CommonLabels["alertname"])
+	if err != nil {
+		log.Println("notification.CommonLabels alertname Marshal failed,", err)
+		return size
+	} else  {
+		fmt.Println("notification.CommonAnnotations[alertname]: ", notification.CommonAnnotations["alertname"])
+		size.Alertname = string(alertname)
+	}
+
+	summary, err := json.Marshal(notification.CommonAnnotations["summary"])
+	if err != nil {
+		log.Println("notification.CommonAnnotations summary Marshal failed,", err)
+		return size
+	} else {
+		fmt.Println("notification.CommonAnnotations[summary]: ", notification.CommonAnnotations["summary"])
+		size.Summary = string(summary)
+	}
+
+	action, err := json.Marshal(notification.CommonLabels["action"])
+	if err != nil {
+		log.Println("notification.CommonAnnotations action Marshal failed,", err)
+		return size
+	} else {
+		fmt.Println("notification.CommonAnnotations[action]: ", notification.CommonAnnotations["action"])
+		size.Action = string(action)
+	}
+
+	fmt.Println("notification.Status:  ", notification.Status)
+	size.Status = notification.Status
+
+	for i := 0; i < len(notification.Alerts); i++ {
+		size.PodList = append(size.PodList, notification.Alerts[i].Annotations["pod"])
+		size.AppNameString += " " + notification.Alerts[i].Annotations["pod"]
+		size.NamespceList = append(size.NamespceList, notification.Alerts[i].Annotations["namespace"])
+
+
+		if size.NsPod == nil {
+			size.NsPod = make(map[string][]string)
+		}
+
+		size.NsPod[notification.Alerts[i].Annotations["namespace"]] = append(size.NsPod[notification.Alerts[i].Annotations["namespace"]], notification.Alerts[i].Annotations["pod"])
+		//size.NsPod[notification.Alerts[i].Annotations["namespace"]] = map[string]string{notification.Alerts[i].Annotations["pod"]: "true"}
+
+	}
+
+	for key, _ := range size.NsPod {
+		subMap := make(map[string]string)
+		for i := 0; i < len(size.NsPod[key]); i++ {
+			subMap[size.NsPod[key][i]] = "true"
+		}
+		if size.NewNsPod == nil {
+			size.NewNsPod = make(map[string]map[string]string)
+		}
+		size.NewNsPod[key] = subMap
+	}
+
+	return size
+}
+
+// 告警接收
+func SendMessage(notification Notification, defaultRobot string, size AlertSizeInfo) {
+	var msgres = make(map[string]string)
+	msgres["mentioned_mobile_list"] = MOBILE
+
+	// 告警消息
+	var buffer bytes.Buffer
+	buffer.WriteString(fmt.Sprintf("告警名称: %s\n", size.Alertname))
+	buffer.WriteString(fmt.Sprintf("摘要信息: %v\n", size.Summary))
+	buffer.WriteString(fmt.Sprintf("触发动作: %v\n", size.Action))
+	buffer.WriteString(fmt.Sprintf("Status: %v\n", size.Status))
+	buffer.WriteString(fmt.Sprintf("以下是相关服务:\n"))
+	for key, _ := range size.NewNsPod {
+		buffer.WriteString(fmt.Sprintf("命名空间: %s\n", key))
+		buffer.WriteString(fmt.Sprintf("异常POD: %s\n", size.NewNsPod[key]))
+	}
+
+	//buffer.WriteString(fmt.Sprintf("mentioned_mobile_list: %v\n",msgres["mentioned_mobile_list"]))
+
+
+	// 恢复消息
+	var buffer2 bytes.Buffer
+	buffer2.WriteString(fmt.Sprintf("恢复告警...\n"))
+	buffer2.WriteString(fmt.Sprintf("告警名称: %s\n", size.Alertname))
+	buffer2.WriteString(fmt.Sprintf("摘要信息: 与该告警相关的pod全部已经重启恢复...\n"))
+	buffer2.WriteString(fmt.Sprintf("以下POD全部恢复:\n%s\n",size.AppNameString))
+	//buffer2.WriteString(fmt.Sprintf("mentioned_mobile_list: %v\n",msgres["mentioned_mobile_list"]))
+	buffer2.WriteString(fmt.Sprintf("Status: %v\n",size.Status))
+
+	//"mentioned_mobile_list": ["15128087663"]
+
+	var m Message
+	m.MsgType = "text"
+	m.Text.Mentioned_mobile_list = msgres["mentioned_mobile_list"]
+
+	if size.Status == "resolved" {
+		m.Text.Content = buffer2.String()
+	}else if size.Status == "firing" {
+		m.Text.Content = buffer.String()
+	}
+
+	jsons, err := json.Marshal(m)
+	if err != nil {
+		log.Println("SendMessage Marshal failed,", err)
+		return
+	}
+
+	resp := string(jsons)
+	client := &http.Client{}
+
+	req, err := http.NewRequest("POST", defaultRobot, strings.NewReader(resp))
+	if err != nil {
+		log.Println("SendMessage http NewRequest failed,", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	r, err := client.Do(req)
+	if err != nil {
+		log.Println("SendMessage client Do failed", err)
+		return
+	}
+
+	defer r.Body.Close()
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Println("SendMessage ReadAll Body failed", err)
+		return
+	}
+
+	log.Println("SendMessage success,body:", string(body))
+}
+
+func ActionDeltePod(size AlertSizeInfo) {
+	//fmt.Println("size.NsPod", size.NsPod)
+
+	for ns, _ := range size.NewNsPod {
+		//a := 1
+		for pod, _ :=  range size.NewNsPod[ns] {
+			//klog.Infof("第 %d 次删除\n", a)
+			pkg.DeletePod(ns, pod)
+			//a += 1
+			//fmt.Println("删除资源： ",ns, "  ", pod)
+		}
+	}
+}
+
+func Alter(c *gin.Context)  {
+	var notification Notification
+
+	err := c.BindJSON(&notification)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	fmt.Println("开始输出notification内容")
+	fmt.Printf("notification类型: %T", notification)
+	fmt.Println("notification.Version: ",notification.Version)
+	fmt.Println("notification.GroupKey: ",notification.GroupKey)
+	fmt.Println("notification.Status: ",notification.Status)
+	fmt.Println("notification.Receiver: ",notification.Receiver)
+	fmt.Println("notification.GroupLabels: ",notification.GroupLabels)
+	fmt.Println("Notification.CommonLabels: ", notification.CommonLabels)
+	fmt.Println("Notification.CommonAnnotations: ", notification.CommonAnnotations)
+	fmt.Println("Notification.ExternalURL: ", notification.ExternalURL)
+	fmt.Println("notification.Alerts长度", len(notification.Alerts))
+	fmt.Println("开始输出notification.Alerts------")
+	for i := 0; i < len(notification.Alerts); i++ {
+		fmt.Printf("notification.Alerts[%d].Labels: %s\n",i , notification.Alerts[i].Labels)
+		fmt.Printf("notification.Alerts[%d].Annotations: %s\n",i , notification.Alerts[i].Annotations)
+		fmt.Println("--------分割线--------")
+	}
+	fmt.Println("notification内容输出完成")
+
+	alertinfo := ProcessingData(notification)
+
+	// 发送告警
+	SendMessage(notification, TOKEN, alertinfo)
+
+	// TriggerAction
+	ActionDeltePod(alertinfo)
+
+}
+
+func main()  {
+	t := gin.Default()
+	t.POST("/Alter",Alter)
+	t.Run(":8090")
+}
