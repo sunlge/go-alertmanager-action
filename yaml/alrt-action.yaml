@@ -17,13 +17,13 @@ spec:
       containers:
         - name: alert-action
           image: registry.cn-beijing.aliyuncs.com/sunlge/alert_action:v1alpha1
-          #imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           env:
             - name: KUBECONFIG
               value: "${config_path}"
-            - name: TOKEN
+            - name: app.env.TOKEN
               value: "${dingtalk_webhook}"
-            - name: MOBILE
+            - name: app.env.MOBILE
               value: ""
           ports:
             - containerPort: 8090
