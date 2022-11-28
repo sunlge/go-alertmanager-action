@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -57,15 +58,15 @@ type AlertSizeInfo struct {
 
 }
 
-//var (
-//	TOKEN  = os.Getenv("app.env.TOKEN")
-//	MOBILE = os.Getenv("app.env.MOBILE")
-//	size AlertSizeInfo
-//)
+var (
+	TOKEN  = os.Getenv("app.env.TOKEN")
+	MOBILE = os.Getenv("app.env.MOBILE")
+	size AlertSizeInfo
+)
 
 
-var TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=3e3124e956cd93df7f5bff51a744c1398b4c1ebf940028dfee7f543a41523df6"
-var MOBILE = ""
+//var TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=3e3124e956cd93df7f5bff51a744c1398b4c1ebf940028dfee7f543a41523df6"
+//var MOBILE = ""
 
 func ProcessingData(notification Notification) (AlertSizeInfo) {
 
@@ -151,10 +152,10 @@ func SendMessage(notification Notification, defaultRobot string, size AlertSizeI
 
 	// 恢复消息
 	var buffer2 bytes.Buffer
-	buffer2.WriteString(fmt.Sprintf("恢复告警...\n"))
-	buffer2.WriteString(fmt.Sprintf("告警名称: %s\n", size.Alertname))
+	buffer2.WriteString(fmt.Sprintf("尝试恢复服务...\n"))
+	buffer2.WriteString(fmt.Sprintf("触发的告警: %s\n", size.Alertname))
 	buffer2.WriteString(fmt.Sprintf("摘要信息: 与该告警相关的pod全部已经重启恢复...\n"))
-	buffer2.WriteString(fmt.Sprintf("以下POD全部恢复:\n%s\n",size.AppNameString))
+	buffer2.WriteString(fmt.Sprintf("以下POD全部重启:\n%s\n",size.AppNameString))
 	//buffer2.WriteString(fmt.Sprintf("mentioned_mobile_list: %v\n",msgres["mentioned_mobile_list"]))
 	buffer2.WriteString(fmt.Sprintf("Status: %v\n",size.Status))
 
@@ -203,15 +204,16 @@ func SendMessage(notification Notification, defaultRobot string, size AlertSizeI
 }
 
 func ActionDeltePod(size AlertSizeInfo) {
-	//fmt.Println("size.NsPod", size.NsPod)
-
-	for ns, _ := range size.NewNsPod {
-		//a := 1
-		for pod, _ :=  range size.NewNsPod[ns] {
-			//klog.Infof("第 %d 次删除\n", a)
-			pkg.DeletePod(ns, pod)
-			//a += 1
-			//fmt.Println("删除资源： ",ns, "  ", pod)
+	if strings.ToLower(size.Action) == "deletepod" {
+		//fmt.Println("size.NsPod", size.NsPod)
+		for ns, _ := range size.NewNsPod {
+			//a := 1
+			for pod, _ :=  range size.NewNsPod[ns] {
+				//klog.Infof("第 %d 次删除\n", a)
+				pkg.DeletePod(ns, pod)
+				//a += 1
+				//fmt.Println("删除资源： ",ns, "  ", pod)
+			}
 		}
 	}
 }

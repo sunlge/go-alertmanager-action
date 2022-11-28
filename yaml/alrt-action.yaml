@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-action
+  labels:
+    app: alert-action
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: alert-action
+  template:
+    metadata:
+      labels:
+        app: alert-action
+    spec:
+      containers:
+        - name: alert-action
+          image: registry.cn-beijing.aliyuncs.com/sunlge/alert_action:v1alpha1
+          #imagePullPolicy: IfNotPresent
+          env:
+            - name: KUBECONFIG
+              value: "${config_path}"
+            - name: TOKEN
+              value: "${dingtalk_webhook}"
+            - name: MOBILE
+              value: ""
+          ports:
+            - containerPort: 8090
+              protocol: TCP
+              name: api
+          resources: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-action
+  labels:
+    app: alert-action
+spec:
+  ports:
+    - port: 8090
+      targetPort: 8090
+  selector:
+    app: alert-action
