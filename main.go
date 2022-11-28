@@ -9,7 +9,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -40,7 +39,7 @@ type Notification struct {
 	Receiver          string            `json:receiver`			  // Receiver接收器
 	GroupLabels       map[string]string `json:groupLabels`		  // ---
 	CommonLabels      map[string]string `json:commonLabels`		  // 触发告警rule的标签 这里拿到的信息可能和实际告警的应用不匹配。
-	CommonAnnotations map[string]string `json:commonAnnotations`  // 获取不到description，测试可以获取到summary
+	CommonAnnotations map[string]string `json:commonAnnotations`  // value不一致的情况下无法获取，可以从Alert里面拿。
 	ExternalURL       string            `json:externalURL`		  // ---
 	Alerts            []Alert           `json:alerts`
 }
@@ -59,14 +58,14 @@ type AlertSizeInfo struct {
 }
 
 var (
-	TOKEN  = os.Getenv("app.env.TOKEN")
-	MOBILE = os.Getenv("app.env.MOBILE")
+	//TOKEN  = os.Getenv("app.env.TOKEN")
+	//MOBILE = os.Getenv("app.env.MOBILE")
 	size AlertSizeInfo
 )
 
 
-//var TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=xxxx"
-//var MOBILE = ""
+var TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=3e3124e956cd93df7f5bff51a744c1398b4c1ebf940028dfee7f543a41523df6"
+var MOBILE = ""
 
 func ProcessingData(notification Notification) (AlertSizeInfo) {
 
@@ -76,8 +75,7 @@ func ProcessingData(notification Notification) (AlertSizeInfo) {
 		log.Println("notification.CommonLabels alertname Marshal failed,", err)
 		return size
 	} else  {
-		fmt.Println("notification.CommonAnnotations[alertname]: ", notification.CommonAnnotations["alertname"])
-		size.Alertname = string(alertname)
+		size.Alertname = strings.Trim(string(alertname), "\"")
 	}
 
 	summary, err := json.Marshal(notification.CommonAnnotations["summary"])
@@ -85,8 +83,7 @@ func ProcessingData(notification Notification) (AlertSizeInfo) {
 		log.Println("notification.CommonAnnotations summary Marshal failed,", err)
 		return size
 	} else {
-		fmt.Println("notification.CommonAnnotations[summary]: ", notification.CommonAnnotations["summary"])
-		size.Summary = string(summary)
+		size.Summary = strings.Trim(string(summary), "\"")
 	}
 
 	action, err := json.Marshal(notification.CommonLabels["action"])
@@ -94,11 +91,11 @@ func ProcessingData(notification Notification) (AlertSizeInfo) {
 		log.Println("notification.CommonAnnotations action Marshal failed,", err)
 		return size
 	} else {
-		fmt.Println("notification.CommonAnnotations[action]: ", notification.CommonAnnotations["action"])
-		size.Action = string(action)
+		size.Action = strings.Trim(string(action), "\"")
 	}
-
-	fmt.Println("notification.Status:  ", notification.Status)
+	log.Println("notification.CommonAnnotations: ", notification.CommonAnnotations)
+	log.Println("namespace: ", notification.CommonAnnotations["namespace"])
+	log.Println("pod: ", notification.CommonAnnotations["pod"])
 	size.Status = notification.Status
 
 	for i := 0; i < len(notification.Alerts); i++ {
@@ -137,28 +134,41 @@ func SendMessage(notification Notification, defaultRobot string, size AlertSizeI
 
 	// 告警消息
 	var buffer bytes.Buffer
+	fmt.Println("开始告警内容后台输出:")
+	fmt.Printf("size.Alertname: %s\nsize.Summary: %s\nsize.Action: %s\nsize.Status: %s\n",size.Alertname, size.Summary, size.Action, size.Status)
+	fmt.Println("size.NewNsPod:", size.NewNsPod)
 	buffer.WriteString(fmt.Sprintf("告警名称: %s\n", size.Alertname))
 	buffer.WriteString(fmt.Sprintf("摘要信息: %v\n", size.Summary))
 	buffer.WriteString(fmt.Sprintf("触发动作: %v\n", size.Action))
-	buffer.WriteString(fmt.Sprintf("Status: %v\n", size.Status))
+	buffer.WriteString(fmt.Sprintf("当前状态: %v\n", size.Status))
 	buffer.WriteString(fmt.Sprintf("以下是相关服务:\n"))
 	for key, _ := range size.NewNsPod {
 		buffer.WriteString(fmt.Sprintf("命名空间: %s\n", key))
-		buffer.WriteString(fmt.Sprintf("异常POD: %s\n", size.NewNsPod[key]))
+		for podkey, _ := range size.NewNsPod[key] {
+			buffer.WriteString(fmt.Sprintf("%-3s异常POD --> : %s\n","*", podkey))
+		}
+
 	}
 
 	//buffer.WriteString(fmt.Sprintf("mentioned_mobile_list: %v\n",msgres["mentioned_mobile_list"]))
 
 
 	// 恢复消息
+	if size.Status == "resolved" {
+		fmt.Println("恢复告警内容后台输出:")
+		fmt.Printf("size.Alertname: %s\nsize.AppNameString: %s\nsize.Status: %s\n",size.Alertname, size.AppNameString, size.Status)
+	}
 	var buffer2 bytes.Buffer
 	buffer2.WriteString(fmt.Sprintf("尝试恢复服务...\n"))
 	buffer2.WriteString(fmt.Sprintf("触发的告警: %s\n", size.Alertname))
-	buffer2.WriteString(fmt.Sprintf("摘要信息: 与该告警相关的pod全部已经重启恢复...\n"))
-	buffer2.WriteString(fmt.Sprintf("以下POD全部重启:\n%s\n",size.AppNameString))
-	//buffer2.WriteString(fmt.Sprintf("mentioned_mobile_list: %v\n",msgres["mentioned_mobile_list"]))
-	buffer2.WriteString(fmt.Sprintf("Status: %v\n",size.Status))
-
+	buffer2.WriteString(fmt.Sprintf("当前状态: %v\n",size.Status))
+	buffer2.WriteString(fmt.Sprintf("以下是重启的相关服务:\n"))
+	for key, _ := range size.NewNsPod {
+		buffer2.WriteString(fmt.Sprintf("命名空间: %s\n", key))
+		for podkey, _ := range size.NewNsPod[key] {
+			buffer2.WriteString(fmt.Sprintf("%-3s重启POD --> : %s\n", "*", podkey))
+		}
+	}
 
 	var m Message
 	m.MsgType = "text"
@@ -204,14 +214,9 @@ func SendMessage(notification Notification, defaultRobot string, size AlertSizeI
 
 func ActionDeltePod(size AlertSizeInfo) {
 	if strings.ToLower(size.Action) == "deletepod" {
-		//fmt.Println("size.NsPod", size.NsPod)
 		for ns, _ := range size.NewNsPod {
-			//a := 1
 			for pod, _ :=  range size.NewNsPod[ns] {
-				//klog.Infof("第 %d 次删除\n", a)
 				pkg.DeletePod(ns, pod)
-				//a += 1
-				//fmt.Println("删除资源： ",ns, "  ", pod)
 			}
 		}
 	}
@@ -226,24 +231,24 @@ func Alter(c *gin.Context)  {
 		return
 	}
 
-	fmt.Println("开始输出notification内容")
-	fmt.Printf("notification类型: %T", notification)
-	fmt.Println("notification.Version: ",notification.Version)
-	fmt.Println("notification.GroupKey: ",notification.GroupKey)
-	fmt.Println("notification.Status: ",notification.Status)
-	fmt.Println("notification.Receiver: ",notification.Receiver)
-	fmt.Println("notification.GroupLabels: ",notification.GroupLabels)
-	fmt.Println("Notification.CommonLabels: ", notification.CommonLabels)
-	fmt.Println("Notification.CommonAnnotations: ", notification.CommonAnnotations)
-	fmt.Println("Notification.ExternalURL: ", notification.ExternalURL)
-	fmt.Println("notification.Alerts长度", len(notification.Alerts))
-	fmt.Println("开始输出notification.Alerts------")
-	for i := 0; i < len(notification.Alerts); i++ {
-		fmt.Printf("notification.Alerts[%d].Labels: %s\n",i , notification.Alerts[i].Labels)
-		fmt.Printf("notification.Alerts[%d].Annotations: %s\n",i , notification.Alerts[i].Annotations)
-		fmt.Println("--------分割线--------")
-	}
-	fmt.Println("notification内容输出完成")
+	//fmt.Println("开始输出notification内容")
+	//fmt.Printf("notification类型: %T", notification)
+	//fmt.Println("notification.Version: ",notification.Version)
+	//fmt.Println("notification.GroupKey: ",notification.GroupKey)
+	//fmt.Println("notification.Status: ",notification.Status)
+	//fmt.Println("notification.Receiver: ",notification.Receiver)
+	//fmt.Println("notification.GroupLabels: ",notification.GroupLabels)
+	//fmt.Println("Notification.CommonLabels: ", notification.CommonLabels)
+	//fmt.Println("Notification.CommonAnnotations: ", notification.CommonAnnotations)
+	//fmt.Println("Notification.ExternalURL: ", notification.ExternalURL)
+	//fmt.Println("notification.Alerts长度", len(notification.Alerts))
+	//fmt.Println("开始输出notification.Alerts------")
+	//for i := 0; i < len(notification.Alerts); i++ {
+	//	fmt.Printf("notification.Alerts[%d].Labels: %s\n",i , notification.Alerts[i].Labels)
+	//	fmt.Printf("notification.Alerts[%d].Annotations: %s\n",i , notification.Alerts[i].Annotations)
+	//	fmt.Println("--------分割线--------")
+	//}
+	//fmt.Println("notification内容输出完成")
 
 	alertinfo := ProcessingData(notification)
 
@@ -253,6 +258,13 @@ func Alter(c *gin.Context)  {
 	// TriggerAction
 	ActionDeltePod(alertinfo)
 
+}
+
+func DeleteQuotes(astr string) []string {
+	a := "\"ssdfsdf\""
+	newstr := strings.Split(a, "")
+	newstr = newstr[1 : len(newstr)-1]
+	return  newstr
 }
 
 func main()  {
