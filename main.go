@@ -65,7 +65,7 @@ var (
 )
 
 
-//var TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=3e3124e956cd93df7f5bff51a744c1398b4c1ebf940028dfee7f543a41523df6"
+//var TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=xxxx"
 //var MOBILE = ""
 
 func ProcessingData(notification Notification) (AlertSizeInfo) {
@@ -159,7 +159,6 @@ func SendMessage(notification Notification, defaultRobot string, size AlertSizeI
 	//buffer2.WriteString(fmt.Sprintf("mentioned_mobile_list: %v\n",msgres["mentioned_mobile_list"]))
 	buffer2.WriteString(fmt.Sprintf("Status: %v\n",size.Status))
 
-	//"mentioned_mobile_list": ["15128087663"]
 
 	var m Message
 	m.MsgType = "text"
