@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -58,14 +59,14 @@ type AlertSizeInfo struct {
 }
 
 var (
-	//TOKEN  = os.Getenv("app.env.TOKEN")
-	//MOBILE = os.Getenv("app.env.MOBILE")
+	TOKEN  = os.Getenv("app.env.TOKEN")
+	MOBILE = os.Getenv("app.env.MOBILE")
 	size AlertSizeInfo
 )
 
 
-var TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=3e3124e956cd93df7f5bff51a744c1398b4c1ebf940028dfee7f543a41523df6"
-var MOBILE = ""
+//var TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxx"
+//var MOBILE = ""
 
 func ProcessingData(notification Notification) (AlertSizeInfo) {
 
@@ -93,9 +94,7 @@ func ProcessingData(notification Notification) (AlertSizeInfo) {
 	} else {
 		size.Action = strings.Trim(string(action), "\"")
 	}
-	log.Println("notification.CommonAnnotations: ", notification.CommonAnnotations)
-	log.Println("namespace: ", notification.CommonAnnotations["namespace"])
-	log.Println("pod: ", notification.CommonAnnotations["pod"])
+
 	size.Status = notification.Status
 
 	for i := 0; i < len(notification.Alerts); i++ {
@@ -134,7 +133,7 @@ func SendMessage(notification Notification, defaultRobot string, size AlertSizeI
 
 	// 告警消息
 	var buffer bytes.Buffer
-	fmt.Println("开始告警内容后台输出:")
+	log.Println("开始告警内容后台输出:")
 	fmt.Printf("size.Alertname: %s\nsize.Summary: %s\nsize.Action: %s\nsize.Status: %s\n",size.Alertname, size.Summary, size.Action, size.Status)
 	fmt.Println("size.NewNsPod:", size.NewNsPod)
 	buffer.WriteString(fmt.Sprintf("告警名称: %s\n", size.Alertname))
@@ -155,7 +154,7 @@ func SendMessage(notification Notification, defaultRobot string, size AlertSizeI
 
 	// 恢复消息
 	if size.Status == "resolved" {
-		fmt.Println("恢复告警内容后台输出:")
+		log.Println("恢复告警内容后台输出:")
 		fmt.Printf("size.Alertname: %s\nsize.AppNameString: %s\nsize.Status: %s\n",size.Alertname, size.AppNameString, size.Status)
 	}
 	var buffer2 bytes.Buffer
