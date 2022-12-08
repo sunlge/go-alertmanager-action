@@ -84,3 +84,65 @@ spec:
       targetPort: 8090
   selector:
     app: alert-action
+
+---
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: alter-autonomous
+  namespace: kube-plugin
+spec:
+  receivers:
+    - name: dev-alter
+      webhookConfigs:
+        - sendResolved: true
+          url: http://alert-action.kube-plugin:8090/Alter
+  route:
+    groupBy: []
+    groupInterval: 20s
+    groupWait: 10s
+    matchers:
+      - name: alert
+        value: autonomous
+    receiver: dev-alter
+    repeatInterval: 20s
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: alert-delete-pod
+  namespace: kube-plugin
+spec:
+  groups:
+    - name: "pod未就绪"
+      rules:
+        - alert: "DeletePod"
+          expr: kube_pod_container_status_ready{job="kube-state-metrics",namespace=~".*"} != 1
+          #expr: (group by (pod, namespace) (kube_pod_container_status_ready{namespace=~".*"} != 1)) !=0
+          for: 25m
+          labels:
+            namespace: kube-plugin
+            action: DeletePod
+            alert: autonomous
+          annotations:
+            description: "pod {{ $labels.namespace }}/{{ $labels.pod }}中的{{ $labels.container }} 容器尚未running"
+            summary: "pod没有达到就绪状态，不能对外提供服务。"
+            namespace: "{{ $labels.namespace }}"
+            pod: "{{ $labels.pod }}"
+
+    - name: "pod服务未就绪-test"
+      rules:
+        - alert: "pod服务未就绪"
+          expr: sum(kube_pod_container_status_ready{namespace=~".*"} != 1) by (pod,namespace)
+          #expr: (group by (pod, namespace) (kube_pod_container_status_ready{namespace=~".*"} != 1)) !=0
+          for: 15m
+          labels:
+            namespace: kube-plugin
+            action: droptest
+          annotations:
+            description: "pod {{ $labels.namespace }}/{{ $labels.pod }}中的{{ $labels.container }} 容器尚未running"
+            summary: "pod没有达到就绪状态，不能对外提供服务..."
+            namespace: "{{ $labels.namespace }}"
+            pod: "{{ $labels.pod }}"
+            # container: {{ $labels.container }}
