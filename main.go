@@ -267,6 +267,7 @@ func DeleteQuotes(astr string) []string {
 }
 
 func main()  {
+	fmt.Printf("TOKEN -> %s\n MOBILE -> %s",TOKEN, MOBILE)
 	t := gin.Default()
 	t.POST("/Alter",Alter)
 	t.Run(":8090")

@@ -23,10 +23,10 @@ rules:
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: go-alert-action
-  namespace: kube-plugin
+  #namespace: kube-plugin
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -54,9 +54,10 @@ spec:
       labels:
         app: alert-action
     spec:
+      serviceAccountName: go-alert-action
       containers:
         - name: alert-action
-          image: registry.cn-beijing.aliyuncs.com/sunlge/alert_action:v1alpha1
+          image: sunlge/alert_action:v1alpha1
           imagePullPolicy: Always
           env:
             - name: KUBECONFIG
